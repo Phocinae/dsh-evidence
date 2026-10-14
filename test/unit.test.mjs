@@ -378,9 +378,46 @@ test('a source-file write is not gated even with a claim in it', () => {
 })
 
 test('a docs markdown write is gated', () => {
-  const result = decideCall(config, createLedger({}), 'write',
+  const ledger = createLedger({})
+  recordTestRun(ledger, true)
+  const result = decideCall(config, ledger, 'write',
     writeCall('docs/guide.md', 'Verified on Windows.'), CWD)
-  assert.equal(result.gate_reason_code, REASON_CODES.LEDGER_EMPTY)
+  // `CLAIM_VERIFIED` is answered by no evidence this gate can observe, so a
+  // populated ledger containing a test run does not make it pass; the verdict is
+  // the honest "a human has to decide this one".
+  assert.equal(result.gate_decision, 'review')
+  assert.equal(result.gate_reason_code, REASON_CODES.TOOL_UNVERIFIED)
+  assert.equal(result.model_verdict, 'tool_unverified')
+})
+
+test('A GENERIC FILE READ DOES NOT VERIFY A CLAIM', () => {
+  // The defect this pins: `CLAIM_VERIFIED` was once answered by `file-read`, so
+  // "verified on Windows" passed as soon as anything at all had been read. That
+  // made the gate agree with a claim it had no basis to agree with — the one
+  // direction a gate must never fail in.
+  const ledger = createLedger({})
+  assert.ok(recordUnrelated(ledger), 'the ledger holds a file read')
+  assert.equal(ledger.has('file-read'), true)
+
+  const result = decideCall(config, ledger, 'write',
+    writeCall('README.md', 'Verified on Windows.'), CWD)
+  assert.notEqual(result.gate_decision, 'allow')
+  assert.equal(result.gate_reason_code, REASON_CODES.TOOL_UNVERIFIED)
+})
+
+test('citing a file IS answered by having read it', () => {
+  // The distinction the fix preserves: `file-read` still answers claims about
+  // files and lines, where reading the file is the actual connection.
+  const ledger = createLedger({})
+  recordUnrelated(ledger)
+  const result = decideCall(config, ledger, 'pwsh',
+    shell('git commit -m "adds `lib/gate.mjs`"'), CWD)
+  const fileClaim = result.claims.find((claim) => claim.kind === 'file')
+  if (fileClaim) {
+    assert.equal(fileClaim.answerable, true)
+    assert.equal(fileClaim.satisfied, true)
+    assert.deepEqual(result.missing_evidence, [])
+  }
 })
 
 test('a path outside the working directory is not judged', () => {

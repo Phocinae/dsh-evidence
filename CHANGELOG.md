@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.1.1 — 2026-10-14
+
+### Fixed — a generic file read was treated as verifying a claim
+
+`CLAIM_VERIFIED` was answered by `file-read`, on the theory that "verified" means
+"someone looked". It does not. The consequence was that
+`git commit -m "verified on Windows"` **passed as soon as any file had been read in
+the session**, because a generic read was accepted as evidence for a specific
+verification. The gate agreed with a claim it had no basis to agree with, which is
+the one direction a gate must never fail in.
+
+This survived the whole test suite because the test that covered it used a fresh
+ledger, and a fresh ledger produces the `review` verdict by the *other* branch —
+`ledger-empty-so-unknowable`. The right answer for the wrong reason is still the
+wrong reason, and it hid the defect completely. It was found by driving the
+published package end-to-end rather than by the suite, which is why the suite now
+has a test that populates the ledger first.
+
+`verify` is now mapped to **no** observable evidence. Such a claim lands in
+`tool_unverified`: this gate cannot confirm or contradict it, and saying
+"unbacked" would be an accusation it cannot support.
+
+The distinction the fix preserves: `file-read` still answers claims about files and
+lines, because there reading the file *is* the connection. `cli` claims are still
+answered by a CI observation.
+
+Two tests were added (59 → 61): one pinning that a generic read does not verify a
+claim, and one pinning that citing a file still is answered by having read it.
+
+### Changed — READMEs
+
+The claim table notes that `CLAIM_VERIFIED` is answered by no observable evidence,
+rather than leaving a reader to infer it from the verdict tables.
+
 ## 0.1.0 — 2026-10-14
 
 First release. A deterministic pre-claim gate for `git commit`, `git push`,

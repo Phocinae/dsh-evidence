@@ -53,7 +53,7 @@ implementation details:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.0
+dsh plugin --profile <name> add dsh-preclaim@0.1.1
 ```
 
 The bundled patch arms the gate on activation. Every key has a default, so it
@@ -203,7 +203,7 @@ optional peer.
 ## Testing
 
 ```sh
-npm test                  # 59 assertions, no host required
+npm test                  # 61 assertions, no host required
 npm run verify:artifacts   # what npm publish would actually ship
 ```
 

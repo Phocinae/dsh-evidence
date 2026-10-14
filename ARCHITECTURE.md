@@ -1,111 +1,281 @@
-# dsh-evidence-gate — 架构
+# dsh-preclaim — architecture
 
-## 一句话
+## In one line
 
-`tools/post-execute` 记录**真正跑过的东西**，`tools/pre-execute` 在 `git commit` /
-`git push` 之前读那份记录，比对这次调用的**自述**。不一致就拦下来。
+`tools/post-execute` records **what actually ran**. `tools/pre-execute` reads that
+record before a `git commit` / `git push` / `git tag` / README-shaped write runs,
+extracts the **claims** the action's own text makes, and checks whether the session
+has the evidence those claims need. If it does not, the action is stopped.
 
-## 数据流
+## Data flow
 
 ```
- 工具调用完成
-      │
-      ▼
- tools/post-execute ──► lib/ledger.mjs
-      │                    │  抽取：工具名、命令文本、成功与否
-      │                    │  判定：提供哪几种证据（test-run / ci-check / file-read）
-      │                    ▼
-      │              会话内存台账（有界，不落盘）
-      │
- 下一个工具调用
-      │
-      ▼
- tools/pre-execute ──► lib/gate.mjs
-      │                  1. 命中触发词吗？（工具名 **或** 命令文本）
-      │                  2. 这次调用自述了什么义务？（literal 短语表）
-      │                  3. 台账里有对应证据吗？
-      │                  4. 有 → allow + next()
-      │                     没有 + 台账非空 → decision（默认 ask）
-      │                     没有 + 台账为空 → failMode（默认 ask）并说明分不清
-      ▼
- allow / ask / deny
+  a tool call finishes
+        │
+        ▼
+  tools/post-execute ──► lib/ledger.mjs
+        │                  │  pull out: tool name, command text, success (true / false / null)
+        │                  │  decide:   which evidence kinds this call provides, per
+        │                  │            EVIDENCE_KINDS + each kind's mustSucceed
+        │                  ▼
+        │            in-memory session ledger
+        │            (bounded, redacted to 400 chars, never written to disk)
+        │            entries that provide no evidence are not recorded at all
+        │
+  the next tool call
+        │
+        ▼
+  tools/pre-execute ──► lib/gate.mjs
+        │                  1. is it triggered? (tool name matches a pattern **or** the
+        │                     command contains an asserting git verb)
+        │                  2. read the action's own text: commit message args, or the
+        │                     README-shaped file content (lib/shell.mjs, lib/paths.mjs)
+        │                  3. detectClaims(text)            → CLAIM_PATTERNS   (lib/claims.mjs)
+        │                  4. evidenceFor(claims, ledger)   → CLAIM_KIND_EVIDENCE + ledger
+        │                  5. verdict:
+        │                        every claim satisfied      → allow
+        │                        no claims at all           → allow  (nothing to check)
+        │                        unsatisfied, none answerable → review  (tool_unverified)
+        │                        unsatisfied, answerable, ledger empty → review (ledger_empty)
+        │                        unsatisfied, answerable, ledger used  → decision (default review)
+        ▼
+  next() (allow)  |  {kind: 'ask'} (review)  |  {kind: 'deny'} (deny)
 ```
 
-## 为什么这样切
+The gate's own vocabulary is `allow | review | deny` (`GATE_DECISIONS`). The host
+waterfall wants `allow | deny | ask`, so `toPreToolDecision` maps `review → ask`.
+`next()` is called exactly once, and only on the allow path.
 
-### 证据只来自台账，不来自被检查的调用
+## Why it is shaped this way
 
-这是整个插件的立足点。如果证据可以来自被检查的那段文本，那么
-`git commit -m "ran pytest; all tests pass"` 就能自我满足，门就成了装饰。
-所以 `decideCall` 拿到候选调用后，**只**用它来回答"你自述了什么"，
-从不向它索取"你做到了什么"的证明。
+### Evidence never comes from the action under review
 
-单元测试里有一条专门钉死这件事（`A CLAIM CANNOT SATISFY ITS OWN OBLIGATION`）。
+This is the whole point. If evidence could come from the text being checked, then
+`git commit -m "ran pytest; all tests pass"` would satisfy itself and the gate would
+be decoration. So `decideCall` uses the candidate action to answer exactly one
+question — *what does this claim?* — and never asks it for *what did you do?*.
 
-### `mustSucceed` 按证据种类分别设定
+The ledger is fed only by `tools/post-execute`, i.e. only by calls that already
+completed. That is why order matters: a test run that has not happened yet
+satisfies nothing. A test pins the separation by name
+(`A CLAIM CANNOT SATISFY ITS OWN OBLIGATION`) and additionally asserts that merely
+reviewing an action records no evidence.
 
-| 证据 | 要求成功？ | 理由 |
+### `mustSucceed` is per evidence kind, not global
+
+`EVIDENCE_KINDS` gives each kind its own `mustSucceed`. `evidenceFrom` skips a kind
+when `spec.mustSucceed` is set and the recorded outcome is not exactly `true`:
+
+| evidence kind | `mustSucceed` | why |
 |---|---|---|
-| `test-run` | **是** | 跑挂了的测试不能证明"测试通过"。把它算作证据，门会变成主动误导 |
-| `ci-check` | 否 | 看到 CI 是红的，仍然是"看过 CI 状态" |
-| `file-read` | 否 | 读文件这件事成立与否与退出码无关 |
+| `test-run` | **yes** | a test run that failed is not evidence that tests pass. Counting it would make the gate actively misleading — which is worse than not having the gate |
+| `build-run` | **yes** | same argument: a failed build is not evidence that the build succeeds |
+| `ci-check` | no | seeing that CI is red is still having seen the CI state |
+| `file-read` | no | whether a file was read does not depend on the exit code |
 
-"结果未知"（`null`）与"失败"（`false`）是两回事，且都**不**满足 `mustSucceed` 的项。
+"Unknown" (`null`) and "failed" (`false`) are different facts and neither satisfies a
+`mustSucceed` kind. `extractSuccess` returns `null` when the payload does not say —
+`{ok: true}`, `{success: false}`, `{error: …}`, `{result: {exitCode}}`,
+`{result: {isError}}` are all read, and an unrecognised shape yields `null`, never a
+guess.
 
-### 空台账是一条独立分支
+### An empty ledger is its own branch
 
-空台账有两种成因：门是中途加载的，或者记录本身失败了。这两种情况下，
-"测试没跑"和"我没看见测试跑"**在信息上无法区分**。
+An empty ledger means the session recorded no evidence: the plugin loaded
+mid-session, or nothing evidence-shaped has run yet. In both, **"the tests did not
+run" and "I did not see them run" are informationally identical.** So an empty
+ledger produces neither a pass nor a
+factual accusation. It produces `review` with reason code
+`ledger-empty-so-unknowable`, `uncertain: true`, and a message that says it cannot
+tell.
 
-所以空台账既不产出 `allow` 也不产出 `deny`，而是 `ask` 并把这句话说出来。
-一个自信的错误答案比一句"我不知道"更糟。
+The test for emptiness is `ledger.stats().everRecorded`, not `size === 0`: a ledger
+that recorded evidence and then aged it out is not the same as a ledger that never
+recorded anything, and only the second one is genuinely unknowable.
 
-### 触发词匹配工具名 **或** 命令文本
+### `tool_unverified` is a limit of the gate, not an accusation
 
-第一版只匹配工具名，结果是**在真实主机上完全不会触发**：shell 工具叫 `pwsh`
-（Windows）或 `bash`（别处），而触发词写的是 `git commit*` —— 永远匹配不上。
+Some claim kinds are answered by nothing this plugin can observe. They are listed
+explicitly in `CLAIM_KIND_EVIDENCE` as empty arrays rather than omitted, because
+"unanswered by design" and "I forgot to add it" look identical in a diff.
 
-现在两者都匹配，因为两种主机形态都存在：
-- shell 工具的**命令文本**里有 `git commit`；
-- 专用工具（`git_commit`、某些 MCP 工具）**没有**命令文本，只有名字。
-
-命令文本还会按行、按 `&&` / `||` / `;` / `|` 切段后再匹配，
-这样 `cd repo && git commit -m x` 不会被前缀绕过。
-
-## 失败方向
-
-这个插件的每一条未知路径都通向 `ask`，没有一条通向 `allow`：
-
-| 情形 | 结果 |
+| claim kind | answering evidence |
 |---|---|
-| 门内部抛异常 | `ask`（有测试钉死） |
-| 结果是 `null` / `{}` / 无法识别的 `decision` 值 | `ask`（有测试钉死） |
-| `tools/pre-execute` 载荷里没有工具名 | `ask` |
-| 配置里 `obligations` 为空 | **加载即抛**（触发词配了却没有可查的义务，那是个 no-op） |
-| 配置里 `triggers` 为空 | **加载即抛** |
-| 自定义义务没有 `evidence` | **加载即抛**（没有任何东西能满足它，它会永远拦下所有匹配调用） |
+| `test` | `test-run` |
+| `verify` | `test-run`, `ci-check`, `file-read` |
+| `build` | `build-run` |
+| `line` | `file-read` |
+| `file` | `file-read` |
+| `cli` | *(none — nothing observable answers it)* |
+| `platform` | *(none)* |
+| `count` | *(none)* |
+| `hash` | *(none)* |
 
-最后三条是刻意的：配置错误要**响**，不能悄悄降级成一个什么都不查的门。
+`evidenceFor` marks each claim `answerable: kinds.length > 0`. When **every**
+unsatisfied claim is unanswerable, calling the action "unbacked" would be an
+accusation the gate cannot support, so the verdict is `review` /
+`tool-unverified` / `model_verdict: 'tool_unverified'` and the message says it needs
+a human. A commit saying `reverts abc1234` cites a hash; nothing the ledger observes
+confirms or contradicts that.
 
-## 边界与不做什么
+Note the asymmetry: if a mix of answerable and unanswerable claims is unsatisfied,
+the answerable ones decide, and the unanswerable ones do not by themselves force
+`tool_unverified`.
 
-- **不读 transcript。** 只读台账。
-- **不调模型、不联网。** 没有依赖，没有端点。
-- **不落盘。** 证据是"本次会话"的属性；从磁盘恢复的台账是**另一次运行**的证据。
-- **不是沙箱。** 全部是文本匹配 + 台账。`git commit -m "$(cat claim.txt)"`、
-  门不认识的测试命令、或者干脆不用 git，都能绕过去。它拦的是常见情形
-  ——**自述比事实快了半步**——它不是防蓄意欺骗的机制，README 也这么写。
+### Triggering matches the tool name **or** the command text
 
-## 文件
+Either match is enough (`isTriggered`):
 
-| 文件 | 职责 |
+- **tool name** against `config.triggerTools`, via `toolMatches` — exact,
+  case-insensitive `*` glob, or `*` for everything;
+- **command text** classified by `classifyCommand`, if any segment carries an
+  asserting git verb.
+
+Both are needed because both host shapes exist. The shell tool on a real host is
+called `pwsh` (or `bash`, `zsh`, …), so a trigger written as a command pattern such
+as `git commit*` can never match a tool name — the first version of this gate did
+exactly that and would have shipped watching nothing while reporting no error. The
+other shape is a dedicated tool (`git_commit`, some MCP tool) that carries no command
+text at all and can only be recognised by its name.
+
+Command text is split per operator-separated segment before classification, so
+`cd repo && git commit -m x` cannot slip past on a prefix. `FOO=1 git commit …` and
+`env FOO=1 sudo git commit …` are also recognised: leading `env`, `VAR=value`
+assignments, and wrappers (`sudo`, `command`, `nohup`, `time`, `exec`) are stripped
+before the verb is read. `git -C /path commit …` is read as a working directory, not
+as an argument.
+
+A tool that is neither on `triggerTools` nor carrying an asserting command is not
+gated at all. That is the one place where "no match" means `allow`, and it is
+correct there for a specific reason: such a call carries *no claim to check*, which
+is a different thing from a claim the gate cannot judge.
+
+### ANSI stripping and quote-aware splitting are both load-bearing
+
+Neither is an optimisation; each prevents a silent failure.
+
+**ANSI stripping** comes first, everywhere text is read — `stripAnsi` is applied in
+`splitSegments`, in `analyseAction`, and again inside `detectClaims`. Real captured
+output carries escape sequences even through a pipe, so `--version` can arrive as
+`\u001b[1;33m--version\u001b[0m`. Every plain-text pattern then fails: the
+non-asserting flag becomes invisible, the command is treated as asserting, and a
+claim split by an escape (`tests \u001b[32mpass\u001b[0m`) stops being found. In
+both directions the gate silently stops recognising what it exists to inspect.
+
+**Quote-aware splitting** decides where one command ends. Splitting on `;` alone
+cuts `git commit -m "a; b"` in half, and the surviving half no longer looks like a
+commit — so a claim inside a message would be missed entirely. `splitSegments`
+therefore treats operators inside `'…'` and `"…"` as text, honours backslash
+escapes, and treats an unterminated quote as running to end of input (which is the
+shell's own reading and the safe one here: at worst a claim is missed, never
+invented).
+
+### Globs are matched after normalisation, in one pass
+
+A write is judged only if its path normalises **inside** `cwd`. `normalisePath`
+resolves the path, reports `insideCwd`, and returns a forward-slash `relative`, so
+`docs/../README.md` and `README.md` are one path. Matching the raw string would let a
+traversal spelling escape the gate entirely, and a path outside the working
+directory is not judged at all.
+
+`matchesGlobs` tests the relative path and its basename, case-insensitively:
+`**/` → optional directory prefix, `**` → crosses directories, `*` → does not, `?`
+→ one non-separator character. A gate that fires on Linux and not on Windows is
+worse than one that fires on neither.
+
+## Recording, in detail
+
+`createLedger` keeps a bounded array (`ledgerLimit`, default `500`) of
+`{toolName, kinds, success, command}`. `command` is redacted to 400 characters plus
+an elision marker; the ledger never keeps full transcripts, and it is never
+persisted — evidence is a property of *this* session, so a ledger restored from disk
+would be evidence for a different run.
+
+Which kinds a call provides (`evidenceFrom`):
+
+| recorded call | kinds |
 |---|---|
-| `index.mjs` | 组合入口：订阅两个 hook，注册工具与技能 |
-| `lib/constants.mjs` | 触发词、义务表、证据模式、有界台账上限 |
-| `lib/config.mjs` | 配置解析与校验（不含默认值的键一律按默认走；不可能满足的配置抛错） |
-| `lib/ledger.mjs` | 台账：抽取、证据判定、有界化、快照 |
-| `lib/gate.mjs` | 触发判定、义务判定、决定、`PreToolDecision` 转换、listener |
-| `lib/errors.mjs` | 错误码与错误类型 |
-| `lib/skill.mjs` | 由**当前配置**生成的技能文本（不手写，避免漂移） |
-| `tools.mjs` | `evidence_status` 工具定义 |
-| `scripts/verify-artifacts.mjs` | 发布前检查：补丁是否点名了包、`files[]` 是否盖住每个必需文件、入口能否加载 |
+| `pytest` / `npm test` / `go test` / `node --test` / … with success `true` | `test-run` |
+| the same with success `false` or `null` | *(nothing)* |
+| `npm run build`, `cargo build`, `dotnet build`, … with success `true` | `build-run` |
+| `gh run view` / `gh pr checks` / `gh api` — any outcome | `ci-check` |
+| `cat` / `rg` / `Get-Content` / `git diff` / … — any outcome | `file-read` |
+| a read-shaped tool (`read`, `view`, `grep`, `list`, …) with **no** command text | `file-read` |
+| a shell tool (`pwsh`, `bash`, …) with an unreadable command | *(nothing — the call is not recorded)* |
+
+That last row is deliberate: inferring "it probably ran tests" from a tool named
+`bash` would be exactly the kind of guess this plugin exists to avoid. The ledger
+also never throws — a malformed payload must not break the host's post-execute
+pipeline — and `stats()` reports `{size, limit, dropped, everRecorded}` so that
+"empty" is distinguishable from "emptied".
+
+## Failure direction
+
+Every unknown path ends in `review` (or `deny`). None ends in `allow`:
+
+| situation | result | pinned by |
+|---|---|---|
+| the gate throws internally | `ask`, reason `the gate failed (…)` | `A THROW INSIDE THE GATE BECOMES ASK, NEVER ALLOW` |
+| the gate result is `null` / `{}` / an unrecognised `decision` | `ask`, reason "could not interpret" | `toPreToolDecision never returns allow for a non-allow result` |
+| the `tools/pre-execute` payload has no usable tool name | `ask`, `payload-had-no-tool-name` | `a payload with no tool name asks rather than allowing` |
+| the ledger has never recorded anything and a claim is unmet | `review`, `ledger-empty-so-unknowable` | `an empty ledger asks, and says it cannot tell` |
+| the action carries no claim at all | `allow`, `no-claim-in-action` | `a commit with no claim is allowed` |
+| nothing the gate observes could answer the claim | `review`, `tool-unverified` | `a claim no evidence could answer is tool_unverified, not a lie` |
+| `triggerTools` empty | **throws at load** | `an empty triggerTools list is refused, not treated as a no-op` |
+| `readmeGlobs` empty | **throws at load** | `an empty readmeGlobs list is refused` |
+| `decision: allow` (or `skip` / `off` / `true`) | **throws at load** | `there is no config value that lets an unbacked claim through` |
+| bad `ledgerLimit` / `pushMessageLimit` / `audit` | **throws at load** | `bad numeric and boolean options are refused` |
+
+The last four are deliberate. A configuration error must be loud rather than
+degrade silently into a gate that checks nothing — a gate with an off switch is a
+gate that gets switched off. `resolveConfig` accepts only `'review'` or `'deny'` for
+`decision`; the error message says why there is no `'allow'`. The other two rows
+worth reading twice are the `allow` rows: **an action that carries no claim is not
+ignorance, it is a fact about the action**, and `allow` is the correct answer to it.
+
+## Scope, and what is deliberately not here
+
+- **No model, no service, no network, no runtime dependency.** "The message claims
+  tests pass" and "no test run is recorded" are both facts, and whether they agree is
+  decidable. A model would add a confidence interval to a yes/no question.
+- **No transcript reading.** The ledger is the only input to a verdict.
+- **No persistence.** See above: a restored ledger is another run's evidence.
+- **Not built: the optional second tier.** The project's design specifies an
+  optional tier that would call the local 150M Phocinae model once when the
+  deterministic layer lands in a grey zone, and fail closed if the service is
+  unreachable. **It is not in this release.** The result object already carries the
+  fields it would fill — `model_verdict`, `model_calls` — and `decideCall` reports
+  `model_calls: 0` and `model_verdict` values (`evidence_present`, `claim_unbacked`,
+  `tool_unverified`) that are honest for a tier that never calls a model. It is left
+  out because the deterministic tier is where the measured value is, and a model tier
+  needs the same evidential standard as everything else: a measurement, not an
+  assumption. Shipping a real counter at `0` is more honest than shipping an
+  unmeasured tier.
+- **It is a seatbelt, not a sandbox.** Everything here is text matching over an
+  in-memory ledger. `git commit -m "$(cat claim.txt)"`, a test command the patterns
+  do not recognise, or simply not using git all go around it. It catches the ordinary
+  case — a claim written slightly ahead of the work — and it is not a defence against
+  a session that wants to deceive it. It should not be described as one.
+
+## Files
+
+| file | role |
+|---|---|
+| `index.mjs` | composition entry: resolves config, creates the ledger, subscribes `tools/post-execute` (record) and `tools/pre-execute` (gate), injects `tools` / `skills`, exports `createPlugin`, `DEFAULTS`, `PLUGIN_ID`, `BUNDLE_NAME` |
+| `tools.mjs` | the `evidence_status` tool definition, its raw JSON Schema (model-facing field is `parameters`, plus `output.schema`), and the dry-run check the tool performs before an action |
+| `lib/constants.mjs` | fixed vocabularies: `DEFAULT_TRIGGER_TOOLS`, `DEFAULT_README_GLOBS`, `GIT_ASSERTING_VERBS`, `GIT_READING_VERBS`, `NON_ASSERTING_FLAGS`, `CLAIM_PATTERNS`, `CLAIM_KIND_EVIDENCE`, `EVIDENCE_KINDS` (with `mustSucceed`), `REASON_CODES`, `GATE_DECISIONS`, `LEDGER_LIMIT`, `PUSH_MESSAGE_LIMIT`, `ANSI_RE`, and the `SHELL_TOOL_HINTS` / `WRITE_TOOL_HINTS` tool-name hints the gate matches on |
+| `lib/config.mjs` | config resolution and validation (`resolveConfig`) and tool-name matching (`toolMatches`); throws on configuration that cannot be honoured |
+| `lib/errors.mjs` | `ERROR_CODES` (`PRECLAIM_BAD_CONTEXT`, `PRECLAIM_BAD_CONFIG`, `PRECLAIM_BAD_PATTERN`) and `PreclaimError` |
+| `lib/ledger.mjs` | the session ledger: `extractCommand` / `extractToolName` / `extractSuccess`, `evidenceFrom` (per-kind `mustSucceed`), recording, bounding, `has` / `kinds` / `snapshot` / `stats` |
+| `lib/gate.mjs` | `isTriggered`, `analyseAction`, `matchesGlobs`, `decideCall`, `toPreToolDecision`, `createPreExecuteGate` — the verdict and the listener |
+| `lib/claims.mjs` | `detectClaims`, `evidenceFor`, `evidenceSummary` — what the text asserts, and whether the ledger answers it |
+| `lib/shell.mjs` | `stripAnsi`, `splitSegments`, `tokenize`, `classifySegment`, `classifyCommand`, `commandAsserts` — quote-aware, ANSI-stripped, no process spawning |
+| `lib/paths.mjs` | `normalisePath`: absolute/relative resolution against `cwd`, forward-slash relative path, `insideCwd` containment |
+| `lib/skill.mjs` | the bundled skill, **generated from the live config** rather than hand-written, so it cannot drift from what is actually gated |
+| `scripts/verify-artifacts.mjs` | pre-publish check: the patch names `package.json`'s `name`, `files[]` covers every required file, no tests or scripts ship, the entry imports and exports `createPlugin` |
+| `skills/preclaim/SKILL.md` | the static skill text published alongside `lib/skill.mjs` |
+
+`package.json`'s `files` array already lists `ARCHITECTURE.md`, so this document
+ships in the tarball; `verify-artifacts.mjs` also asserts that `README.md`,
+`CHANGELOG.md`, `LICENSE`, every `lib/*.mjs` file and `skills/preclaim/SKILL.md`
+exist and are covered by `files[]`.

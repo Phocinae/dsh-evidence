@@ -45,7 +45,7 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.0
+dsh plugin --profile <name> add dsh-preclaim@0.1.1
 ```
 
 bundle 补丁在激活时即武装。**每个键都有默认值**，零配置就能用。
@@ -178,7 +178,7 @@ Node `^22.19.0 || >=24.0.0`。零运行时依赖。`@deepseek-ai/cordis` 是可�
 ## 测试
 
 ```sh
-npm test                  # 59 条断言，不需要主机
+npm test                  # 61 条断言，不需要主机
 npm run verify:artifacts   # 检查 npm publish 真正会发出去的东西
 ```
 
