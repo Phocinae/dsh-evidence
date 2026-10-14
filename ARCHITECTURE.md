@@ -102,21 +102,33 @@ explicitly in `CLAIM_KIND_EVIDENCE` as empty arrays rather than omitted, because
 | claim kind | answering evidence |
 |---|---|
 | `test` | `test-run` |
-| `verify` | `test-run`, `ci-check`, `file-read` |
 | `build` | `build-run` |
+| `cli` | `ci-check` |
 | `line` | `file-read` |
 | `file` | `file-read` |
-| `cli` | *(none — nothing observable answers it)* |
+| `verify` | *(none — deliberately unanswered)* |
 | `platform` | *(none)* |
 | `count` | *(none)* |
 | `hash` | *(none)* |
+
+Two of those rows carry an argument rather than a mapping:
+
+- **`verify` is deliberately unanswered.** An earlier version mapped it to
+  `file-read` and `test-run`, on the theory that "verified" means "someone looked".
+  That made `git commit -m "verified on Windows"` pass as soon as *any* file had been
+  read in the session — the gate agreeing with a claim on no basis, which is the one
+  direction a gate must never fail in. Reading a file is not verifying a claim, and
+  the gate cannot connect the two, so `CLAIM_VERIFIED` lands in `tool_unverified`.
+- **`line` and `file` keep `file-read`**, because there the connection is real:
+  citing a line or a file is answered by having read that file.
 
 `evidenceFor` marks each claim `answerable: kinds.length > 0`. When **every**
 unsatisfied claim is unanswerable, calling the action "unbacked" would be an
 accusation the gate cannot support, so the verdict is `review` /
 `tool-unverified` / `model_verdict: 'tool_unverified'` and the message says it needs
-a human. A commit saying `reverts abc1234` cites a hash; nothing the ledger observes
-confirms or contradicts that.
+a human. A commit saying `reverts abc1234` cites a hash, and a README saying
+"verified on Windows" asserts a verification: nothing the ledger observes confirms or
+contradicts either one.
 
 Note the asymmetry: if a mix of answerable and unanswerable claims is unsatisfied,
 the answerable ones decide, and the unanswerable ones do not by themselves force
@@ -240,6 +252,10 @@ ignorance, it is a fact about the action**, and `allow` is the correct answer to
   decidable. A model would add a confidence interval to a yes/no question.
 - **No transcript reading.** The ledger is the only input to a verdict.
 - **No persistence.** See above: a restored ledger is another run's evidence.
+- **No claim the gate cannot answer is answered by proxy.** `verify` is mapped to no
+  evidence at all rather than to a generic read, so "a generic file read does not
+  verify a claim" holds as a property of the table rather than of a reviewer's
+  attention.
 - **Not built: the optional second tier.** The project's design specifies an
   optional tier that would call the local 150M Phocinae model once when the
   deterministic layer lands in a grey zone, and fail closed if the service is
