@@ -1,0 +1,53 @@
+﻿# dsh-preclaim bundle patch — mounts the deterministic pre-claim gate.
+#
+# Layer order: this bundle patch, then the profile patch, then
+# $DSH_HOME/cordis.patch.yml, then --patch overlays; later layers win.
+#
+# Every key below has a documented default in lib/config.mjs, so this file can be
+# reduced to `enabled: true` and the plugin still works.
+- insert:
+    - id: preclaim
+      name: dsh-preclaim
+      config:
+        # Tools the gate watches. All five names were verified to exist on a real
+        # host; a tool not on this list carries no claim to check and is never
+        # gated. A `git commit` inside a shell call is caught regardless of the
+        # shell tool's name, so this list does not have to track host renames.
+        triggerTools:
+          - pwsh
+          - bash
+          - write
+          - edit
+          - str_replace_editor
+
+        # README-shaped writes are gated, because a README is where a project
+        # states what it does and whether it works. Ordinary source writes are
+        # left alone: gating those would put a gate in front of every edit.
+        readmeGlobs:
+          - 'README*'
+          - 'CHANGELOG*'
+          - 'docs/**/*.md'
+          - '**/README.md'
+
+        # What happens when an action asserts something the session cannot back.
+        # review = a human decides (default). deny = refused outright.
+        #
+        # There is deliberately no value that lets an unbacked claim through.
+        # `review` is the default because the common cause is not deception: it is
+        # a session where the work happened elsewhere, or where the plugin loaded
+        # after the test run. Neither deserves a hard block.
+        decision: review
+
+        # Record every verdict through the host logger.
+        audit: true
+
+        # Bounded session ledger. Evidence is a property of *this* session, so it
+        # is never persisted: a ledger restored from disk would be evidence for a
+        # different run.
+        ledgerLimit: 500
+
+        # A push is checked against at most this many commit messages, because a
+        # push covers every commit not yet on the remote and the check must not
+        # grow with repository age. The cap is reported when it bites, since a
+        # silently truncated check reads as a complete one.
+        pushMessageLimit: 20
