@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.2 — 2026-10-14
+
+Documentation only. No behaviour change from 0.1.1.
+
+### Fixed — the shipped READMEs contradicted the shipped ARCHITECTURE.md
+
+`ARCHITECTURE.md` was written against the current source and correctly documents
+that `CLAIM_VERIFIED` maps to no observable evidence while `CLAIM_CLI_ASSERTION`
+is answered by a CI observation. Both READMEs still described the mapping from
+before the 0.1.1 fix, where `verify` was answered by `test-run` / `ci-check` /
+`file-read` and `cli` by nothing.
+
+Two documents in one package disagreeing about the gate's central table is worse
+than either being wrong alone: a reader has no way to tell which one the code
+follows. The READMEs now carry the same mapping, plus the rule behind it —
+evidence has to connect to the claim it answers — and the claim table gained a
+column naming what answers each pattern, which is what made the disagreement
+visible in the first place.
+
+`ARCHITECTURE.md` was rewritten in this cycle (111 → 297 lines) after an
+independent check found it described a superseded design: two modules that do not
+exist, an obligation-id model that was replaced by claim patterns, and the wrong
+package name throughout.
 ## 0.1.1 — 2026-10-14
 
 ### Fixed — a generic file read was treated as verifying a claim

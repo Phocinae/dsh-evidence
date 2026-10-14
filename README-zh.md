@@ -45,7 +45,7 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.1
+dsh plugin --profile <name> add dsh-preclaim@0.1.2
 ```
 
 bundle 补丁在激活时即武装。**每个键都有默认值**，零配置就能用。
@@ -66,18 +66,27 @@ README 是项目声明「我做什么、它能不能跑」的地方。普通源�
 
 ## 什么算主张
 
-| 模式 | 它注意到什么 |
-|---|---|
-| `CLAIM_TEST_PASSED` | 说测试通过 |
-| `CLAIM_VERIFIED` | 说某事已验证 |
-| `CLAIM_RAN_CHECK` | 说跑过某个检查 |
-| `CLAIM_BUILD_OK` | 说构建成功 |
-| `CLAIM_CLI_ASSERTION` | 点名一个 CLI 调用 |
-| `CLAIM_DEPENDENCY` | 声称平台依赖 |
-| `CLAIM_LINE_REF` | 引用行号 |
-| `CLAIM_COUNT` | 引用数量 |
-| `CLAIM_HASH_REF` | 引用提交哈希 |
-| `CLAIM_FILE_EXISTS` | 引用文件 |
+| 模式 | 它注意到什么 | 由什么回答 |
+|---|---|---|
+| `CLAIM_TEST_PASSED` | 说测试通过 | 一次记录在案的测试运行 |
+| `CLAIM_VERIFIED` | 说某事已验证 | **没有任何可观察证据** → `tool_unverified` |
+| `CLAIM_RAN_CHECK` | 说跑过某个检查 | 一次记录在案的测试运行 |
+| `CLAIM_BUILD_OK` | 说构建成功 | 一次记录在案的构建 |
+| `CLAIM_CLI_ASSERTION` | 点名一个 CLI 调用 | 一次 CI 观察 |
+| `CLAIM_DEPENDENCY` | 声称平台依赖 | **没有任何可观察证据** → `tool_unverified` |
+| `CLAIM_LINE_REF` | 引用行号 | 一次文件读取 |
+| `CLAIM_COUNT` | 引用数量 | **没有任何可观察证据** → `tool_unverified` |
+| `CLAIM_HASH_REF` | 引用提交哈希 | **没有任何可观察证据** → `tool_unverified` |
+| `CLAIM_FILE_EXISTS` | 引用文件 | 一次文件读取 |
+
+最后一列背后有一条规则：**证据必须与它回答的主张对得上。**
+`file-read` 能回答「引用某个文件／某一行」，因为读那个文件**就是**那个连接本身。
+它**不能**回答「这件事已验证」—— 读了**某个**文件不等于验证了**那个**主张。
+本插件早期版本把它当成能回答，结果是只要本次会话读过任何东西，
+`git commit -m "verified on Windows"` 就会放行。
+
+那四类映射到「无」不是遗漏。它们是这道门**能观察到、但无法裁决**的主张，
+所以它如实说明并转人工（`tool_unverified`），而不是做出一个它支撑不起的指控。
 
 一条都不命中 → 放行，理由是 `no-claim-in-action`。这些模式刻意是**语法层**的：
 网撒得越大，对诚实工作的误拦越多，而一个爱喊狼来了的门最终会被关掉 ——

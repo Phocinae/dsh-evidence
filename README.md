@@ -53,7 +53,7 @@ implementation details:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.1
+dsh plugin --profile <name> add dsh-preclaim@0.1.2
 ```
 
 The bundled patch arms the gate on activation. Every key has a default, so it
@@ -77,21 +77,32 @@ A write outside the working directory is not judged at all.
 
 ## What counts as a claim
 
-| pattern | what it notices |
-|---|---|
-| `CLAIM_TEST_PASSED` | says tests pass |
-| `CLAIM_VERIFIED` | says something was verified |
-| `CLAIM_RAN_CHECK` | says a check was run |
-| `CLAIM_BUILD_OK` | says the build succeeds |
-| `CLAIM_CLI_ASSERTION` | names a CLI invocation |
-| `CLAIM_DEPENDENCY` | asserts a platform dependency |
-| `CLAIM_LINE_REF` | cites a line |
-| `CLAIM_COUNT` | cites a count |
-| `CLAIM_HASH_REF` | cites a commit hash |
-| `CLAIM_FILE_EXISTS` | cites a file |
+| pattern | what it notices | answered by |
+|---|---|---|
+| `CLAIM_TEST_PASSED` | says tests pass | a recorded test run |
+| `CLAIM_VERIFIED` | says something was verified | **nothing observable** → `tool_unverified` |
+| `CLAIM_RAN_CHECK` | says a check was run | a recorded test run |
+| `CLAIM_BUILD_OK` | says the build succeeds | a recorded build |
+| `CLAIM_CLI_ASSERTION` | names a CLI invocation | a CI observation |
+| `CLAIM_DEPENDENCY` | asserts a platform dependency | **nothing observable** → `tool_unverified` |
+| `CLAIM_LINE_REF` | cites a line | a file read |
+| `CLAIM_COUNT` | cites a count | **nothing observable** → `tool_unverified` |
+| `CLAIM_HASH_REF` | cites a commit hash | **nothing observable** → `tool_unverified` |
+| `CLAIM_FILE_EXISTS` | cites a file | a file read |
 
-If none matches, the action is allowed with `no-claim-in-action`. The patterns are
-deliberately syntactic: a wider net means more false stops on honest work, and a
+The last column has a rule behind it: **evidence has to connect to the claim it
+answers.** `file-read` answers a citation of a file or a line, because reading that
+file *is* the connection. It does **not** answer "this was verified" — reading
+*some* file is not verifying *that* claim. An earlier version treated it as if it
+were, which made `git commit -m "verified on Windows"` pass as soon as anything at
+all had been read.
+
+The four kinds mapping to nothing are not an oversight. They are claims this gate
+can observe but cannot adjudicate, so it says so and asks
+(`tool_unverified`) rather than making an accusation it cannot support.
+
+If no pattern matches, the action is allowed with `no-claim-in-action`. The patterns
+are deliberately syntactic: a wider net means more false stops on honest work, and a
 gate that cries wolf gets switched off — after which it checks nothing at all.
 
 ## What happens on a miss
