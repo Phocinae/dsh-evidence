@@ -1,5 +1,8 @@
 # dsh-preclaim
 
+> **Repository name vs package name:** the repo is `dsh-evidence`; the npm package is `dsh-preclaim`. They are the same plugin.
+
+
 **A commit message that says "tests pass" is a claim. This checks it against what
 the session actually ran — and stops the commit if the two disagree.**
 
