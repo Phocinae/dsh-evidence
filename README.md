@@ -24,6 +24,15 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 > `scripts/verify-artifacts.mjs` fails the build if a later edit drifts back onto a
 > name somebody else owns.
 
+## Quick start
+
+```sh
+dsh plugin --profile web add dsh-preclaim@0.1.2
+```
+
+evidence_status / the pre-execute gate is now available; The gate records what ran in the session and checks a commit/push/README claim against that ledger before it is written.
+
+
 ## Why this exists, and why it is not a model
 
 The failure it targets is not a judgement call. "The message claims tests pass"
