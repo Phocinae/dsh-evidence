@@ -187,7 +187,7 @@ Node `^22.19.0 || >=24.0.0`。零运行时依赖。`@deepseek-ai/cordis` 是可�
 ## 测试
 
 ```sh
-npm test                  # 61 条断言，不需要主机
+npm test                  # 64 条测试，不需要主机
 npm run verify:artifacts   # 检查 npm publish 真正会发出去的东西
 ```
 

@@ -30,6 +30,55 @@ import { CLAIM_KIND_EVIDENCE, CLAIM_PATTERNS, EVIDENCE_KINDS, REASON_CODES } fro
 const config = resolveConfig({})
 const CWD = process.cwd()
 
+/**
+ * One or more commands that MUST be recognised as each evidence kind.
+ *
+ * Why this table exists: the unit suite used to feed only four of the 27
+ * patterns in EVIDENCE_KINDS. Replacing the table with a minimal one that kept
+ * just those four still produced 61/61 green — 23 patterns were decoration.
+ * The coverage test below checks every pattern object, not just every kind, so
+ * deleting a single alternative turns the suite red.
+ */
+const EVIDENCE_PROBES = Object.freeze({
+  'test-run': [
+    'pytest -q',
+    'python -m pytest -q',
+    'python3 -m unittest',
+    'npm test', 'npm run test',
+    'pnpm test', 'pnpm run test',
+    'yarn test',
+    'go test ./...',
+    'cargo test',
+    'make test',
+    'dotnet test',
+    'mvn test',
+    'gradle test', 'gradlew test',
+    'node --test test/*.mjs',
+    'bun test',
+  ],
+  'build-run': [
+    'npm run build', 'pnpm build', 'yarn build',
+    'cargo build',
+    'go build ./...',
+    'dotnet build',
+    'mvn package', 'mvn install',
+    'gradle build', 'gradlew build',
+    'python -m build',
+  ],
+  'ci-check': [
+    'gh run view 1', 'gh run list', 'gh run watch 1',
+    'gh pr checks 3', 'gh workflow view ci',
+    'gh api repos/x/y',
+  ],
+  'file-read': [
+    'cat x', 'bat x', 'less x', 'more x', 'head x', 'tail x',
+    'rg foo', 'grep foo', 'Select-String foo',
+    'Get-Content a.md', 'Get-ChildItem', 'Test-Path x', 'Select-Object',
+    'sed -n 1p x', 'awk "{print}" x',
+    'git diff', 'git show abc', 'git log',
+  ],
+})
+
 function shell(command, toolName = 'pwsh') {
   return { toolName, exec: { name: toolName, args: { command } } }
 }
@@ -143,7 +192,18 @@ test('the trigger fires on a git commit inside a pwsh call', () => {
   // matched against the tool NAME, and the shell tool is called `pwsh`.
   const result = decideCall(config, createLedger({}), 'pwsh', shell('git commit -m "fix: x"'), CWD)
   assert.equal(result.gate_reason_code, REASON_CODES.NO_CLAIM)
-  assert.notEqual(result.gate_reason_code, REASON_CODES.NOT_TRIGGERED)
+  // Assert the trigger actually fired. The previous second assertion was
+  // `notEqual(NO_CLAIM, NOT_TRIGGERED)`, which the line above already implies:
+  // it stayed true even if the trigger never matched anything.
+  assert.equal(result.detail.segments.length, 1)
+  assert.equal(result.detail.segments[0].kind, 'git_commit')
+  assert.equal(result.detail.segments[0].assertion, true)
+
+  // Negative control, so the positive assertion above can go red: `read` is not
+  // one of the watched tools, so the same call must take NOT_TRIGGERED.
+  const control = decideCall(config, createLedger({}), 'read',
+    { toolName: 'read', exec: { name: 'read', args: { file_path: 'a.txt' } } }, CWD)
+  assert.equal(control.gate_reason_code, REASON_CODES.NOT_TRIGGERED)
 })
 
 // ---------------------------------------------------------------------------
@@ -153,15 +213,42 @@ test('the trigger fires on a git commit inside a pwsh call', () => {
 test('the design patterns are detected', () => {
   const cases = [
     ['fix: tests pass', 'CLAIM_TEST_PASSED'],
+    ['全部通过', 'CLAIM_TEST_PASSED'],
+    ['测试通过', 'CLAIM_TEST_PASSED'],
+    ['检查通过', 'CLAIM_TEST_PASSED'],
     ['docs: verified the install steps', 'CLAIM_VERIFIED'],
+    ['已验证', 'CLAIM_VERIFIED'],
+    ['已核实', 'CLAIM_VERIFIED'],
+    ['已复现', 'CLAIM_VERIFIED'],
+    ['已确认', 'CLAIM_VERIFIED'],
+    ['已核对', 'CLAIM_VERIFIED'],
     ['ran the test suite', 'CLAIM_RAN_CHECK'],
+    ['跑了', 'CLAIM_RAN_CHECK'],
+    ['跑过', 'CLAIM_RAN_CHECK'],
+    ['已运行', 'CLAIM_RAN_CHECK'],
     ['the build succeeds now', 'CLAIM_BUILD_OK'],
+    ['构建成功', 'CLAIM_BUILD_OK'],
+    ['构建通过', 'CLAIM_BUILD_OK'],
     ['supports --strict mode', 'CLAIM_CLI_ASSERTION'],
+    ['adds npm run build to CI', 'CLAIM_CLI_ASSERTION'],
+    ['phocinae-publish-gate check', 'CLAIM_CLI_ASSERTION'],
     ['windows-only for now', 'CLAIM_DEPENDENCY'],
+    ['依赖 Windows', 'CLAIM_DEPENDENCY'],
+    ['只在 Windows', 'CLAIM_DEPENDENCY'],
+    ['只支持 Linux', 'CLAIM_DEPENDENCY'],
+    ['see L42 for the fix', 'CLAIM_LINE_REF'],
     ['see line 42 for the fix', 'CLAIM_LINE_REF'],
+    ['见第 42 行', 'CLAIM_LINE_REF'],
+    ['第42行', 'CLAIM_LINE_REF'],
     ['cuts 53 / 53 cases', 'CLAIM_COUNT'],
+    ['removes 12 tests', 'CLAIM_COUNT'],
+    ['修复了 3 个 bug', 'CLAIM_COUNT'],
+    ['新增 5 条规则', 'CLAIM_COUNT'],
+    ['完成 8 项检查', 'CLAIM_COUNT'],
     ['reverts 612e5bd', 'CLAIM_HASH_REF'],
     ['adds `lib/gate.mjs`', 'CLAIM_FILE_EXISTS'],
+    ['文件 lib/gate.mjs 已改', 'CLAIM_FILE_EXISTS'],
+    ['file lib/gate.mjs changed', 'CLAIM_FILE_EXISTS'],
   ]
   for (const [text, id] of cases) {
     const ids = detectClaims(text).map((claim) => claim.id)
@@ -192,6 +279,37 @@ test('every evidence kind referenced by a claim mapping exists', () => {
   for (const [kind, evidence] of Object.entries(CLAIM_KIND_EVIDENCE)) {
     for (const entry of evidence) {
       assert.ok(known.has(entry), `claim kind ${kind} references unknown evidence ${entry}`)
+    }
+  }
+})
+
+test('every EVIDENCE_KINDS pattern has a positive probe', () => {
+  const uncovered = []
+  for (const [kind, spec] of Object.entries(EVIDENCE_KINDS)) {
+    const probes = EVIDENCE_PROBES[kind] ?? []
+    for (const pattern of spec.patterns) {
+      if (!probes.some((command) => pattern.test(command))) {
+        uncovered.push(`${kind}: ${pattern}`)
+      }
+    }
+  }
+  assert.deepEqual(uncovered, [], `patterns with no positive probe:\n${uncovered.join('\n')}`)
+})
+
+test('every positive evidence probe is recorded as that kind', () => {
+  for (const [kind, probes] of Object.entries(EVIDENCE_PROBES)) {
+    for (const command of probes) {
+      const kinds = evidenceFrom('pwsh', command, true)
+      assert.ok(kinds.has(kind),
+        `${JSON.stringify(command)} should provide ${kind}, got [${[...kinds].join(', ')}]`)
+    }
+  }
+})
+
+test('mustSucceed evidence kinds are refused when the run failed', () => {
+  for (const kind of ['test-run', 'build-run']) {
+    for (const command of EVIDENCE_PROBES[kind]) {
+      assert.equal(evidenceFrom('pwsh', command, false).has(kind), false, command)
     }
   }
 })

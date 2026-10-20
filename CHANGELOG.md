@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased
+
+### Fixed — four claim-pattern alternatives that could never match
+
+An independent probe fed each alternative its own positive sample. Four were
+dead:
+
+- `CLAIM_COUNT`'s Chinese quantifiers (`个` / `条` / `项`) ended in `\b`. A CJK
+  character is a non-word character, so the boundary after `个` in `3 个 bug`
+  can never exist: the whole Chinese half of the pattern never matched. The
+  Chinese quantifiers now live in their own branch without the trailing `\b`.
+- `CLAIM_CLI_ASSERTION`'s `\bphocinae-\w+ \w+` stopped at the first hyphen, so
+  `phocinae-publish-gate check` never matched. It is now
+  `\bphocinae-[a-z0-9-]+ \w+`.
+
+Both were the "rule did not fire" vs "there was nothing to find" shape this
+project keeps finding: the gate still returned a decision, it just silently
+failed to recognise the claim.
+
+### Added — a positive probe for every `EVIDENCE_KINDS` pattern
+
+The suite exercised four of the 27 evidence patterns. Replacing the whole table
+with a minimal four-pattern version still produced 61/61 green — 23 patterns
+were decoration. The suite now carries a probe per pattern and asserts two
+things separately: every pattern object matches at least one probe, and every
+probe is recorded as that kind. Killing a single regex (e.g. replacing
+`pytest` with `/(?!)/`) now fails the coverage test and names the dead regex.
+
+The trigger test's second assertion was also tautological — it asserted
+`NO_CLAIM !== NOT_TRIGGERED`, which the preceding line already implies. It now
+asserts the analysed segment is a `git_commit`, with a non-triggered `read`
+call as a negative control.
+
+### Added — CI and an OIDC publishing path
+
+The package had no `.github/workflows`: its 64 tests and 55 artefact conditions
+ran only on the machine that wrote them, and publishing required the long-lived
+npm token. `ci.yml` now runs both on Linux, Windows and macOS (Node 22 and 24);
+`release.yml` publishes with npm trusted publishing (`id-token: write`,
+npm >= 11.5.1). The publish job fails cleanly until a trusted publisher is
+configured on npmjs.com — there is deliberately no token to fall back to.
+
 ## 0.1.2 — 2026-10-14
 
 Documentation only. No behaviour change from 0.1.1.

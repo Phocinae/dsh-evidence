@@ -226,7 +226,7 @@ optional peer.
 ## Testing
 
 ```sh
-npm test                  # 61 assertions, no host required
+npm test                  # 64 tests, no host required
 npm run verify:artifacts   # what npm publish would actually ship
 ```
 
