@@ -1,7 +1,7 @@
 {
   "name": "dsh-preclaim",
   "description": "DeepSeek Harness plugin: a deterministic gate that checks a git commit, push or README write asserting something was verified against what the session actually ran. No model, no network.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Phocinae/dsh-evidence.git"

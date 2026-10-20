@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 — 2026-10-20
 
 ### Fixed — four claim-pattern alternatives that could never match
 

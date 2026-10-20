@@ -30,7 +30,7 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 ## Quick start
 
 ```sh
-dsh plugin --profile web add dsh-preclaim@0.1.2
+dsh plugin --profile web add dsh-preclaim@0.1.3
 ```
 
 evidence_status / the pre-execute gate is now available; The gate records what ran in the session and checks a commit/push/README claim against that ledger before it is written.
@@ -65,7 +65,7 @@ implementation details:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.2
+dsh plugin --profile <name> add dsh-preclaim@0.1.3
 ```
 
 The bundled patch arms the gate on activation. Every key has a default, so it
