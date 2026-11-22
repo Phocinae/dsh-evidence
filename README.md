@@ -2,7 +2,6 @@
 
 > **Repository name vs package name:** the repo is `dsh-evidence`; the npm package is `dsh-preclaim`. They are the same plugin.
 
-
 **A commit message that says "tests pass" is a claim. This checks it against what
 the session actually ran — and stops the commit if the two disagree.**
 
@@ -27,14 +26,15 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 > `scripts/verify-artifacts.mjs` fails the build if a later edit drifts back onto a
 > name somebody else owns.
 
+Last verified on DeepSeek Harness `dsh-v0.2.3-alpha.1` (2026-11-22).
+
 ## Quick start
 
 ```sh
-dsh plugin --profile web add dsh-preclaim@0.1.3
+dsh plugin --profile web add dsh-preclaim@0.1.4
 ```
 
 evidence_status / the pre-execute gate is now available; The gate records what ran in the session and checks a commit/push/README claim against that ledger before it is written.
-
 
 ## Why this exists, and why it is not a model
 
@@ -65,7 +65,7 @@ implementation details:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.3
+dsh plugin --profile <name> add dsh-preclaim@0.1.4
 ```
 
 The bundled patch arms the gate on activation. Every key has a default, so it

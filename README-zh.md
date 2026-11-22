@@ -3,6 +3,8 @@
 **提交信息里写「测试通过」是一个主张。这个插件拿它跟本次会话真正跑过的东西比对 ——
 对不上就拦下来。**
 
+最近一次核验：DeepSeek Harness `dsh-v0.2.3-alpha.1`（2026-11-22）。
+
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件。
 **不调模型、不连服务、不联网、不需要 API key。**
 
@@ -45,7 +47,7 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.3
+dsh plugin --profile <name> add dsh-preclaim@0.1.4
 ```
 
 bundle 补丁在激活时即武装。**每个键都有默认值**，零配置就能用。
