@@ -47,7 +47,7 @@ $ git commit -m "fix: parser handles empty input; tests pass"
 ## 安装
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.4
+dsh plugin --profile <name> add dsh-preclaim@0.1.5
 ```
 
 bundle 补丁在激活时即武装。**每个键都有默认值**，零配置就能用。

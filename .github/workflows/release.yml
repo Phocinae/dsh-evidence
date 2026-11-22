@@ -56,8 +56,6 @@ jobs:
           # Node 24 ships npm 11.x; the explicit floor check below fails loudly
           # if a future runner image ever drops below the OIDC minimum.
           node-version: "24"
-          registry-url: https://registry.npmjs.org
-
       - name: The tag must match package.json
         shell: bash
         run: |

@@ -31,7 +31,7 @@ Last verified on DeepSeek Harness `dsh-v0.2.3-alpha.1` (2026-11-22).
 ## Quick start
 
 ```sh
-dsh plugin --profile web add dsh-preclaim@0.1.4
+dsh plugin --profile web add dsh-preclaim@0.1.5
 ```
 
 evidence_status / the pre-execute gate is now available; The gate records what ran in the session and checks a commit/push/README claim against that ledger before it is written.
@@ -65,7 +65,7 @@ implementation details:
 ## Install
 
 ```sh
-dsh plugin --profile <name> add dsh-preclaim@0.1.4
+dsh plugin --profile <name> add dsh-preclaim@0.1.5
 ```
 
 The bundled patch arms the gate on activation. Every key has a default, so it
